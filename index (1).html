@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공리적 시학 3D 시각화 - 다중 관점 역추론</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0a0e27;
+      color: #fff;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #canvas3d {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 33.33%;
+      height: 100%;
+      border-right: 2px solid #1a1f3a;
+    }
+
+    #canvas2d {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 66.66%;
+      height: 100%;
+    }
+
+    #canvas2d-actual {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .info-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(10, 14, 39, 0.95);
+      border: 1px solid #1a1f3a;
+      padding: 15px;
+      border-radius: 8px;
+      max-width: 300px;
+      font-size: 12px;
+      line-height: 1.6;
+      z-index: 100;
+    }
+
+    .info-panel h3 {
+      margin-bottom: 10px;
+      color: #00d4ff;
+      font-size: 14px;
+    }
+
+    .info-panel p {
+      margin: 5px 0;
+      color: #b8c7d9;
+    }
+
+    .instruction {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(10, 14, 39, 0.95);
+      border: 1px solid #1a1f3a;
+      padding: 15px;
+      border-radius: 8px;
+      max-width: 300px;
+      font-size: 12px;
+      z-index: 100;
+    }
+
+    .instruction h3 {
+      color: #ffaa00;
+      margin-bottom: 10px;
+    }
+
+    .instruction p {
+      margin: 5px 0;
+      color: #b8c7d9;
+    }
+
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(10, 14, 39, 0.95);
+      border: 1px solid #1a1f3a;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      z-index: 100;
+    }
+
+    .legend h3 {
+      color: #eafffb;
+      margin-bottom: 10px;
+    }
+
+    .legend-item {
+      margin: 5px 0;
+      display: flex;
+      align-items: center;
+    }
+
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      margin-right: 8px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas3d"></div>
+  <div id="canvas2d">
+    <canvas id="canvas2d-actual"></canvas>
+  </div>
+
+  <div class="instruction">
+    <h3>사용 방법</h3>
+    <p><strong>3D 뷰 (좌측):</strong></p>
+    <p>마우스 드래그: 회전</p>
+    <p>스크롤: 확대/축소</p>
+    <p></p>
+    <p><strong>2D 평면 (우측):</strong></p>
+    <p>좌측 XY: 시간×현존성</p>
+    <p>우측 XZ: 시간×정동심도</p>
+    <p>클릭: 끌개 중심 추가</p>
+  </div>
+
+  <div class="info-panel">
+    <h3>현재 상태</h3>
+    <p id="xy-count">XY 평면 중심: 0개</p>
+    <p id="xz-count">XZ 평면 중심: 0개</p>
+    <p id="intersection-count">교집합: 0개</p>
+  </div>
+
+  <div class="legend">
+    <h3>범례</h3>
+    <div class="legend-item">
+      <div class="legend-color" style="background: #ffaa00;"></div>
+      <span>구절 점</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: rgba(255, 0, 255, 1);"></div>
+      <span>교집합 (진함)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: rgba(255, 0, 255, 0.3);"></div>
+      <span>차집합 (흐림)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: #00d4ff;"></div>
+      <span>3D 궤적</span>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="src/app.js"></script>
+  <script>
+    // 상태 업데이트 함수
+    function updateStatus() {
+      const xyCount = document.getElementById('xy-count');
+      const xzCount = document.getElementById('xz-count');
+      const intersectionCount = document.getElementById('intersection-count');
+      
+      // 이 함수는 app.js에서 호출됨
+      if (typeof xyAttractors !== 'undefined') {
+        xyCount.textContent = `XY 평면 중심: ${xyAttractors.length}개`;
+        xzCount.textContent = `XZ 평면 중심: ${xzAttractors.length}개`;
+        
+        const intersection = xyAttractors.filter(xy => 
+          xzAttractors.some(xz => 
+            Math.abs(xy.x - xz.x) < 1 && 
+            Math.abs(xy.y - xz.y) < 0.5 && 
+            Math.abs(xy.z - xz.z) < 0.5
+          )
+        ).length;
+        intersectionCount.textContent = `교집합: ${intersection}개`;
+      }
+    }
+
+    setInterval(updateStatus, 500);
+  </script>
+</body>
+</html>
