@@ -95,8 +95,8 @@
       </section>
     </main>
 
-    <script src="https://unpkg.com/three@0.161.0/build/three.min.js"></script>
-    <script>
+    <script type="module">
+      import * as THREE from 'https://unpkg.com/three@0.161.0/build/three.module.js';
       // 공리적 시학 3D 시각화 - 다중 관점 역추론 시스템
       // 마우스 클릭으로 끌개 중심을 추가하고, 교집합/차집합을 투명도로 구분
       const versePoints = [
