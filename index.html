@@ -125,16 +125,17 @@
       // Three.js 3D 설정
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0a0e27);
-      const canvas3d = document.getElementById('canvas3d');
+      const canvasRoot = document.getElementById('canvas-root') || document.body;
+      let canvas3d = document.getElementById('canvas3d');
       if (!canvas3d) {
-        const div = document.createElement('div');
-        div.id = 'canvas3d';
-        div.style.position = 'absolute';
-        div.style.left = '0';
-        div.style.top = '0';
-        div.style.width = '33.33%';
-        div.style.height = '100%';
-        document.body.appendChild(div);
+        canvas3d = document.createElement('canvas');
+        canvas3d.id = 'canvas3d';
+        canvas3d.style.position = 'absolute';
+        canvas3d.style.left = '0';
+        canvas3d.style.top = '0';
+        canvas3d.style.width = '33.33%';
+        canvas3d.style.height = '100%';
+        canvasRoot.appendChild(canvas3d);
       }
       const camera = new THREE.PerspectiveCamera(75, window.innerWidth / 3 / window.innerHeight, 0.1, 1000);
       camera.position.set(15, 10, 15);
