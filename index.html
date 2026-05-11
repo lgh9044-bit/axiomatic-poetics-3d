@@ -360,7 +360,6 @@
 
     <script type="module">
       import * as THREE from 'https://unpkg.com/three@0.161.0/build/three.module.js';
-      import { OrbitControls } from 'https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js';
 
       const versePoints = [
         { id: 1, text: '그건 내게 없는 것이었다', y: 0.58, z: -2.63, m: 3, p: 0, s: 4, e: 5, a: 0, label: '부재의 선언' },
@@ -399,11 +398,26 @@
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       stage.appendChild(renderer.domElement);
 
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.45;
-      controls.target.set(0, 0.9, -1.2);
+      const world = new THREE.Group();
+      scene.add(world);
+      let pointerDown = false;
+      let lastPointerX = 0;
+      let lastPointerY = 0;
+      renderer.domElement.addEventListener('pointerdown', event => {
+        pointerDown = true;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+      });
+      window.addEventListener('pointerup', () => { pointerDown = false; });
+      window.addEventListener('pointermove', event => {
+        if (!pointerDown) return;
+        const dx = event.clientX - lastPointerX;
+        const dy = event.clientY - lastPointerY;
+        world.rotation.y += dx * 0.006;
+        world.rotation.x += dy * 0.003;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+      });
 
       const ambient = new THREE.AmbientLight(0x94b7ff, 1.25);
       const key = new THREE.DirectionalLight(0xffffff, 1.8);
@@ -415,14 +429,14 @@
       const grid = new THREE.GridHelper(32, 16, 0x214866, 0x17243a);
       grid.rotation.x = Math.PI / 2;
       grid.position.z = 0;
-      scene.add(grid);
+      world.add(grid);
 
       const planeGeo = new THREE.PlaneGeometry(31, 9);
       const planeMat = new THREE.MeshBasicMaterial({ color: 0x79f2de, transparent: true, opacity: 0.065, side: THREE.DoubleSide });
       const zPlane = new THREE.Mesh(planeGeo, planeMat);
       zPlane.position.set(0, 1.5, 0);
       zPlane.rotation.x = Math.PI / 2;
-      scene.add(zPlane);
+      world.add(zPlane);
 
       const curvePoints = versePoints.map(v => new THREE.Vector3(v.x, v.y * 5, v.z));
       const curve = new THREE.CatmullRomCurve3(curvePoints, false, 'catmullrom', 0.38);
@@ -430,14 +444,14 @@
         new THREE.TubeGeometry(curve, 160, 0.115, 12, false),
         new THREE.MeshStandardMaterial({ color: 0x79f2de, emissive: 0x0e4f56, metalness: 0.25, roughness: 0.35 })
       );
-      scene.add(tube);
+      world.add(tube);
 
       const lineMaterial = new THREE.LineBasicMaterial({ color: 0x9b79ff, transparent: true, opacity: 0.45 });
       const returnLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints([curvePoints[0], ...curvePoints.slice(1), curvePoints[0]]),
         lineMaterial
       );
-      scene.add(returnLine);
+      world.add(returnLine);
 
       versePoints.forEach(v => {
         const sphere = new THREE.Mesh(
@@ -447,15 +461,15 @@
         sphere.position.set(v.x, v.y * 5, v.z);
         sphere.userData.id = v.id;
         pointMeshes.set(v.id, sphere);
-        scene.add(sphere);
+        world.add(sphere);
       });
 
-      scene.add(attractorGroup);
+      world.add(attractorGroup);
 
       function resetCamera() {
         camera.position.set(7.5, 9.6, 18.5);
-        controls.target.set(0, 3.2, -1.1);
-        controls.update();
+        camera.lookAt(0, 3.2, -1.1);
+        world.rotation.set(-0.08, -0.28, 0);
       }
       resetCamera();
 
@@ -664,7 +678,7 @@
 
       function animate() {
         requestAnimationFrame(animate);
-        controls.update();
+        if (!pointerDown) world.rotation.y += 0.0022;
         renderer.render(scene, camera);
       }
 
