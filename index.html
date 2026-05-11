@@ -93,19 +93,6 @@
         height: 100% !important;
       }
 
-      .title-card {
-        position: absolute;
-        left: 24px;
-        top: 22px;
-        width: min(440px, calc(100% - 48px));
-        padding: 22px 24px;
-        border: 1px solid rgba(121, 242, 222, 0.18);
-        background: rgba(5, 8, 19, 0.62);
-        box-shadow: 0 18px 58px rgba(0,0,0,.38);
-        backdrop-filter: blur(16px);
-        z-index: 3;
-      }
-
       .eyebrow {
         margin: 0 0 10px;
         color: var(--cyan);
@@ -137,20 +124,21 @@
 
       .legend {
         position: absolute;
-        left: 24px;
-        bottom: 22px;
+        left: 18px;
+        bottom: 16px;
         display: grid;
         grid-template-columns: repeat(3, auto);
         gap: 9px;
         z-index: 3;
+        opacity: .82;
       }
 
       .chip {
-        padding: 8px 10px;
+        padding: 7px 9px;
         border: 1px solid rgba(255,255,255,.12);
-        background: rgba(9, 14, 30, .68);
+        background: rgba(9, 14, 30, .52);
         color: #cfd7f2;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
       }
 
@@ -211,7 +199,7 @@
         height: 150px;
         padding: 16px 18px;
         display: grid;
-        grid-template-columns: 310px minmax(0, 1fr) 260px;
+        grid-template-columns: 280px minmax(0, 1fr) 340px;
         gap: 16px;
         overflow: hidden;
       }
@@ -287,6 +275,27 @@
         word-break: keep-all;
       }
 
+      .attractor-readout {
+        min-height: 58px;
+        max-height: 82px;
+        overflow: auto;
+        padding: 9px 10px;
+        border: 1px solid rgba(155, 121, 255, .24);
+        background: rgba(155, 121, 255, .08);
+        color: #e8e2ff;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .attractor-readout strong {
+        color: var(--cyan);
+        font-weight: 800;
+      }
+
+      .attractor-readout .empty {
+        color: var(--muted);
+      }
+
       @media (max-width: 980px) {
         body { overflow: auto; }
         #app {
@@ -303,15 +312,6 @@
     <main id="app">
       <section class="stage" aria-label="공리적 시학 3D 장면">
         <div id="scene3d"></div>
-        <article class="title-card">
-          <p class="eyebrow">Axiomatic Poetics · Multi-view Geometry</p>
-          <h1>사랑의<br />끌개장</h1>
-          <p class="lead">
-            김언 「사랑」의 14개 구절에 부여한 <strong>y·z·m·p·s·e·a</strong> 값이 3D 궤도와
-            두 개의 2D 투영면을 동시에 만든다. 오른쪽 평면을 클릭하면 가설적 끌개 중심이 추가되고,
-            3D 장면에는 그 중심이 반투명 구로 표시된다.
-          </p>
-        </article>
         <div class="legend" aria-label="범례">
           <span class="chip"><i style="background:#ffb02e"></i>구절 점</span>
           <span class="chip"><i style="background:#79f2de"></i>시적 궤도</span>
@@ -353,7 +353,8 @@
         <aside class="controls">
           <button id="resetView" type="button">카메라 초기화</button>
           <button id="clearAttractors" type="button">추론 끌개 지우기</button>
-          <p>행을 클릭하면 해당 구절이 강조된다. 오른쪽 두 평면을 클릭하면 각각 XY/XZ 좌표에서 끌개 후보가 생성된다.</p>
+          <div id="attractorReadout" class="attractor-readout"><span class="empty">아직 찍은 중심점이 없어. XY/XZ 평면을 클릭하면 좌표가 여기에 도출돼.</span></div>
+          <p>행을 클릭하면 해당 구절이 강조된다. 오른쪽 평면을 클릭하면 끌개 중심점의 x·y·z 좌표가 기록된다.</p>
         </aside>
       </section>
     </main>
@@ -386,6 +387,7 @@
       let selectedId = 1;
       const xyAttractors = [];
       const xzAttractors = [];
+      const attractorLog = [];
       const attractorGroup = new THREE.Group();
       const pointMeshes = new Map();
 
@@ -497,6 +499,17 @@
           new THREE.LineBasicMaterial({ color: type === 'XY' ? 0x79f2de : 0x9b79ff, transparent: true, opacity: 0.45 })
         );
         attractorGroup.add(vertical);
+      }
+
+      function renderAttractorReadout() {
+        const box = document.getElementById('attractorReadout');
+        if (!attractorLog.length) {
+          box.innerHTML = '<span class="empty">아직 찍은 중심점이 없어. XY/XZ 평면을 클릭하면 좌표가 여기에 도출돼.</span>';
+          return;
+        }
+        box.innerHTML = attractorLog.slice(-4).reverse().map(a => (
+          `<div><strong>${a.label}</strong> ${a.plane} 중심점 → x=${a.x.toFixed(2)}, y=${a.y.toFixed(2)}, z=${a.z.toFixed(2)}</div>`
+        )).join('');
       }
 
       const xyCanvas = document.getElementById('xyCanvas');
@@ -619,18 +632,24 @@
         const plotW = rect.width - pad * 2;
         const plotH = rect.height - pad * 2;
         const px = ((x - pad) / plotW) * 28 - 14;
+        if (x < pad || x > rect.width - pad || y < pad || y > rect.height - pad) return;
         if (plane === 'XY') {
           const py = 0.42 + (1 - (y - pad) / plotH) * (1.04 - 0.42);
           const payload = { x: px, y: py, z: 0 };
           xyAttractors.push(payload);
+          const label = `A${xyAttractors.length}`;
+          attractorLog.push({ label, plane: 'XY', ...payload });
           addAttractor('XY', payload);
         } else {
           const pz = -4.05 + (1 - (y - pad) / plotH) * (2.55 + 4.05);
           const payload = { x: px, y: 0.62, z: pz };
           xzAttractors.push(payload);
+          const label = `A${xzAttractors.length}`;
+          attractorLog.push({ label, plane: 'XZ', ...payload });
           addAttractor('XZ', payload);
         }
         render2D();
+        renderAttractorReadout();
       }
 
       xyCanvas.addEventListener('click', e => handlePlaneClick(e, 'XY'));
@@ -662,8 +681,10 @@
       document.getElementById('clearAttractors').addEventListener('click', () => {
         xyAttractors.length = 0;
         xzAttractors.length = 0;
+        attractorLog.length = 0;
         attractorGroup.clear();
         render2D();
+        renderAttractorReadout();
       });
 
       function resize() {
@@ -681,10 +702,10 @@
         if (!pointerDown) world.rotation.y += 0.0022;
         renderer.render(scene, camera);
       }
-
-      resize();
+      render2D();
+      renderAttractorReadout();
       selectVerse(1);
       animate();
-    </script>
+   </script>
   </body>
 </html>
