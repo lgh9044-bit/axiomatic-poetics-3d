@@ -24,6 +24,7 @@
         --cyan: #79f2de;
         --gold: #ffb02e;
         --violet: #9b79ff;
+        --rose: #ff5fa2;
         --deep: #060916;
         --panel: rgba(11, 17, 36, 0.78);
         --line: rgba(121, 242, 222, 0.22);
@@ -127,7 +128,7 @@
         left: 18px;
         bottom: 16px;
         display: grid;
-        grid-template-columns: repeat(3, auto);
+        grid-template-columns: repeat(4, auto);
         gap: 9px;
         z-index: 3;
         opacity: .82;
@@ -315,7 +316,8 @@
         <div class="legend" aria-label="범례">
           <span class="chip"><i style="background:#ffb02e"></i>구절 점</span>
           <span class="chip"><i style="background:#79f2de"></i>시적 궤도</span>
-          <span class="chip"><i style="background:#9b79ff"></i>추론 끌개</span>
+          <span class="chip"><i style="background:#9b79ff"></i>투영 끌개</span>
+          <span class="chip"><i style="background:#ff5fa2"></i>힘장 선분</span>
         </div>
       </section>
 
@@ -352,9 +354,9 @@
         </div>
         <aside class="controls">
           <button id="resetView" type="button">카메라 초기화</button>
-          <button id="clearAttractors" type="button">추론 끌개 지우기</button>
+          <button id="clearAttractors" type="button">끌개장 지우기</button>
           <div id="attractorReadout" class="attractor-readout"><span class="empty">아직 찍은 중심점이 없어. XY/XZ 평면을 클릭하면 좌표가 여기에 도출돼.</span></div>
-          <p>행을 클릭하면 해당 구절이 강조된다. 오른쪽 평면을 클릭하면 끌개 중심점의 x·y·z 좌표가 기록된다.</p>
+          <p>XY/XZ 평면에 찍힌 중심점은 힘 강도와 영향 반경을 갖는다. 두 평면의 x값이 가까우면 결절 중심점으로 결합되고, 처음점-끝점 선분은 가까운 끌개에 더 강하게 휘어진다.</p>
         </aside>
       </section>
     </main>
@@ -382,6 +384,7 @@
       versePoints.forEach((v, i) => {
         v.x = -13 + i * 2;
         v.F = Number(((v.m + v.p + v.s + v.e + v.a) / 8).toFixed(2));
+        v.latentStrength = Number((0.18 + v.F * 0.12).toFixed(2));
       });
 
       let selectedId = 1;
@@ -389,7 +392,12 @@
       const xzAttractors = [];
       const attractorLog = [];
       const attractorGroup = new THREE.Group();
+      const fieldGroup = new THREE.Group();
+      const crossingGroup = new THREE.Group();
       const pointMeshes = new Map();
+      const EPSILON_X = 1.25;
+      const Y_SCALE = 5;
+      const fieldState = { centers: [], deformed: [] };
 
       const stage = document.getElementById('scene3d');
       const scene = new THREE.Scene();
@@ -467,6 +475,8 @@
       });
 
       world.add(attractorGroup);
+      world.add(fieldGroup);
+      world.add(crossingGroup);
 
       function resetCamera() {
         camera.position.set(7.5, 9.6, 18.5);
@@ -484,32 +494,236 @@
         });
       }
 
+      function colorForCenter(center) {
+        if (center.kind === '결절 중심점') return 0xfff1a6;
+        if (center.kind === '매듭 중심점') return 0xffffff;
+        if (center.kind === '분기 중심점') return 0x9b79ff;
+        if (center.kind === '시행 잠재 중심점') return 0x335d7a;
+        return center.plane === 'XY' ? 0x79f2de : 0x9b79ff;
+      }
+
+      function makeTextSprite(message, color = '#ffffff', scale = 1) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgba(5, 8, 18, .72)';
+        ctx.fillRect(12, 20, 488, 84);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.strokeRect(12, 20, 488, 84);
+        ctx.fillStyle = color;
+        ctx.font = '700 38px IBM Plex Sans KR, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(message, 256, 64);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(2.4 * scale, 0.6 * scale, 1);
+        return sprite;
+      }
+
       function addAttractor(type, payload) {
         const marker = new THREE.Mesh(
-          new THREE.SphereGeometry(0.42, 28, 28),
-          new THREE.MeshStandardMaterial({ color: 0x9b79ff, emissive: 0x1f0f5d, transparent: true, opacity: 0.7 })
+          new THREE.SphereGeometry(0.38, 28, 28),
+          new THREE.MeshStandardMaterial({ color: type === 'XY' ? 0x79f2de : 0x9b79ff, emissive: 0x1f0f5d, transparent: true, opacity: 0.72 })
         );
-        marker.position.set(payload.x, payload.y * 5, payload.z);
+        marker.position.set(payload.x, payload.y * Y_SCALE, payload.z);
         attractorGroup.add(marker);
         const vertical = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(payload.x, 0, payload.z),
-            new THREE.Vector3(payload.x, payload.y * 5, payload.z)
+            new THREE.Vector3(payload.x, payload.y * Y_SCALE, payload.z)
           ]),
           new THREE.LineBasicMaterial({ color: type === 'XY' ? 0x79f2de : 0x9b79ff, transparent: true, opacity: 0.45 })
         );
         attractorGroup.add(vertical);
       }
 
+      function buildAttractorField() {
+        const centers = [];
+        const usedXY = new Set();
+        const usedXZ = new Set();
+
+        versePoints.forEach(v => {
+          if (v.F >= 1.55 || Math.abs(v.z) > 3.35 || v.y > 0.9) {
+            centers.push({
+              id: `L${v.id}`,
+              kind: '시행 잠재 중심점',
+              plane: '3D',
+              x: v.x,
+              y: v.y,
+              z: v.z,
+              strength: v.latentStrength,
+              radius: 2.1 + v.F * 0.18,
+              silent: true
+            });
+          }
+        });
+
+        xyAttractors.forEach((xy, i) => {
+          let bestIndex = -1;
+          let bestDx = Infinity;
+          xzAttractors.forEach((xz, j) => {
+            if (usedXZ.has(j)) return;
+            const dx = Math.abs(xy.x - xz.x);
+            if (dx < bestDx) { bestDx = dx; bestIndex = j; }
+          });
+          if (bestIndex >= 0 && bestDx <= EPSILON_X) {
+            const xz = xzAttractors[bestIndex];
+            usedXY.add(i);
+            usedXZ.add(bestIndex);
+            const closeness = 1 - bestDx / EPSILON_X;
+            const zWeight = Math.min(1, Math.abs(xz.z) / 4.05);
+            const yWeight = Math.min(1, Math.abs(xy.y - 0.42) / 0.62);
+            const strength = 1.28 + closeness * 0.72 + zWeight * 0.34 + yWeight * 0.24;
+            centers.push({
+              id: `K${centers.length + 1}`,
+              kind: strength > 2.05 ? '매듭 중심점' : '결절 중심점',
+              plane: 'XY∩XZ',
+              x: (xy.x + xz.x) / 2,
+              y: xy.y,
+              z: xz.z,
+              strength,
+              radius: 3.3 + strength * 0.72,
+              source: `XY A${i + 1} + XZ A${bestIndex + 1}`
+            });
+          }
+        });
+
+        xyAttractors.forEach((xy, i) => {
+          if (usedXY.has(i)) return;
+          const nearestXZ = xzAttractors.reduce((best, xz) => Math.min(best, Math.abs(xy.x - xz.x)), Infinity);
+          const branch = nearestXZ > EPSILON_X * 2;
+          const strength = branch ? 0.78 + xy.y * 0.35 : 0.92 + xy.y * 0.42;
+          centers.push({
+            id: `Pxy${i + 1}`,
+            kind: branch ? '분기 중심점' : '투영 중심점',
+            plane: 'XY',
+            x: xy.x,
+            y: xy.y,
+            z: 0,
+            strength,
+            radius: branch ? 2.8 : 3.2,
+            source: `XY A${i + 1}`
+          });
+        });
+
+        xzAttractors.forEach((xz, i) => {
+          if (usedXZ.has(i)) return;
+          const nearestXY = xyAttractors.reduce((best, xy) => Math.min(best, Math.abs(xy.x - xz.x)), Infinity);
+          const branch = nearestXY > EPSILON_X * 2;
+          const strength = branch ? 0.82 + Math.min(1, Math.abs(xz.z) / 4.05) * 0.42 : 0.95 + Math.min(1, Math.abs(xz.z) / 4.05) * 0.48;
+          centers.push({
+            id: `Pxz${i + 1}`,
+            kind: branch ? '분기 중심점' : '투영 중심점',
+            plane: 'XZ',
+            x: xz.x,
+            y: 0.62,
+            z: xz.z,
+            strength,
+            radius: branch ? 2.9 : 3.3,
+            source: `XZ A${i + 1}`
+          });
+        });
+
+        return centers;
+      }
+
+      function calculateDeformedSpine(centers) {
+        const start = curvePoints[0];
+        const end = curvePoints[curvePoints.length - 1];
+        const points = [];
+        for (let i = 0; i <= 96; i++) {
+          const t = i / 96;
+          const base = new THREE.Vector3().lerpVectors(start, end, t);
+          const displacement = new THREE.Vector3();
+          centers.forEach(center => {
+            const c = new THREE.Vector3(center.x, center.y * Y_SCALE, center.z);
+            const delta = c.clone().sub(base);
+            const d = Math.max(delta.length(), 0.42);
+            const local = Math.exp(-(d * d) / (center.radius * center.radius));
+            const mass = center.strength * local / Math.pow(d + 0.72, 0.62);
+            displacement.add(delta.normalize().multiplyScalar(mass));
+          });
+          const endpointEnvelope = Math.pow(Math.sin(Math.PI * t), 0.82);
+          if (displacement.length() > 3.4) displacement.setLength(3.4);
+          base.add(displacement.multiplyScalar(endpointEnvelope));
+          points.push(base);
+        }
+        return points;
+      }
+
+      function updateAttractorFieldVisualization() {
+        fieldGroup.clear();
+        crossingGroup.clear();
+        const centers = buildAttractorField();
+        const deformed = calculateDeformedSpine(centers);
+        fieldState.centers = centers;
+        fieldState.deformed = deformed;
+
+        const baseLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([curvePoints[0], curvePoints[curvePoints.length - 1]]),
+          new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, dashSize: 0.38, gapSize: 0.28 })
+        );
+        baseLine.computeLineDistances();
+        fieldGroup.add(baseLine);
+
+        const fieldCurve = new THREE.CatmullRomCurve3(deformed, false, 'catmullrom', 0.5);
+        const fieldTube = new THREE.Mesh(
+          new THREE.TubeGeometry(fieldCurve, 180, 0.07, 10, false),
+          new THREE.MeshStandardMaterial({ color: 0xff5fa2, emissive: 0x461029, metalness: 0.18, roughness: 0.28 })
+        );
+        fieldGroup.add(fieldTube);
+
+        centers.forEach(center => {
+          if (center.silent) return;
+          const color = colorForCenter(center);
+          const position = new THREE.Vector3(center.x, center.y * Y_SCALE, center.z);
+          const influence = new THREE.Mesh(
+            new THREE.SphereGeometry(center.radius, 24, 16),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: center.kind.includes('결절') || center.kind.includes('매듭') ? 0.075 : 0.045, wireframe: true })
+          );
+          influence.position.copy(position);
+          fieldGroup.add(influence);
+
+          const marker = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22 + center.strength * 0.11, 28, 28),
+            new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.26, transparent: true, opacity: center.kind === '분기 중심점' ? 0.66 : 0.92 })
+          );
+          marker.position.copy(position);
+          fieldGroup.add(marker);
+
+          const nearest = deformed.reduce((best, p, idx) => {
+            const distance = p.distanceTo(position);
+            return distance < best.distance ? { point: p, index: idx, distance } : best;
+          }, { point: deformed[0], index: 0, distance: Infinity });
+
+          if ((center.kind === '결절 중심점' || center.kind === '매듭 중심점') && nearest.distance < center.radius * 0.82) {
+            const label = makeTextSprite(nearest.point.y >= position.y ? 'OVER / 위로 통과' : 'UNDER / 아래로 잠김', nearest.point.y >= position.y ? '#fff1a6' : '#c7b8ff', 0.86);
+            label.position.copy(nearest.point).add(new THREE.Vector3(0, 0.85, 0));
+            crossingGroup.add(label);
+          }
+        });
+      }
+
       function renderAttractorReadout() {
         const box = document.getElementById('attractorReadout');
+        const visibleCenters = fieldState.centers.filter(c => !c.silent);
         if (!attractorLog.length) {
-          box.innerHTML = '<span class="empty">아직 찍은 중심점이 없어. XY/XZ 평면을 클릭하면 좌표가 여기에 도출돼.</span>';
+          box.innerHTML = '<span class="empty">아직 찍은 중심점이 없어. XY/XZ 평면을 클릭하면 좌표와 힘 강도가 여기에 도출돼. 기본 선분은 시행 내부의 잠재 중심점에 약하게 반응하고 있어.</span>';
           return;
         }
-        box.innerHTML = attractorLog.slice(-4).reverse().map(a => (
-          `<div><strong>${a.label}</strong> ${a.plane} 중심점 → x=${a.x.toFixed(2)}, y=${a.y.toFixed(2)}, z=${a.z.toFixed(2)}</div>`
-        )).join('');
+        const logs = attractorLog.slice(-2).reverse().map(a => (
+          `<div><strong>${a.label}</strong> ${a.plane} 투영 → x=${a.x.toFixed(2)}, y=${a.y.toFixed(2)}, z=${a.z.toFixed(2)}</div>`
+        ));
+        const centers = visibleCenters.slice(-4).reverse().map(c => (
+          `<div><strong>${c.kind}</strong> ${c.plane} → 힘=${c.strength.toFixed(2)}, 반경=${c.radius.toFixed(2)}, x=${c.x.toFixed(2)}, y=${c.y.toFixed(2)}, z=${c.z.toFixed(2)}</div>`
+        ));
+        box.innerHTML = [...centers, ...logs].join('');
       }
 
       const xyCanvas = document.getElementById('xyCanvas');
@@ -572,9 +786,27 @@
           if (index === 0) ctx.moveTo(p.x, p.y);
           else ctx.lineTo(p.x, p.y);
         });
-        ctx.strokeStyle = 'rgba(121, 242, 222, .62)';
+        ctx.strokeStyle = 'rgba(121, 242, 222, .44)';
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        if (fieldState.deformed.length) {
+          ctx.beginPath();
+          fieldState.deformed.forEach((p3, index) => {
+            const pseudo = plane === 'XY'
+              ? { x: p3.x, y: p3.y / Y_SCALE, z: 0 }
+              : { x: p3.x, y: 0.6, z: p3.z };
+            const p = projectPoint(pseudo, plane, box);
+            if (index === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          });
+          ctx.strokeStyle = 'rgba(255, 95, 162, .88)';
+          ctx.lineWidth = 3.2;
+          ctx.shadowColor = 'rgba(255, 95, 162, .48)';
+          ctx.shadowBlur = 12;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
 
         versePoints.forEach(v => {
           const p = projectPoint(v, plane, box);
@@ -596,16 +828,21 @@
         attractors.forEach((a, index) => {
           const pseudo = plane === 'XY' ? { x: a.x, y: a.y, z: 0 } : { x: a.x, y: 0.6, z: a.z };
           const p = projectPoint(pseudo, plane, box);
+          const strength = plane === 'XY' ? 0.85 + a.y * 0.45 : 0.85 + Math.min(1, Math.abs(a.z) / 4.05) * 0.55;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(155,121,255,.34)';
+          ctx.arc(p.x, p.y, 15 + strength * 7, 0, Math.PI * 2);
+          ctx.fillStyle = plane === 'XY' ? 'rgba(121,242,222,.08)' : 'rgba(155,121,255,.08)';
           ctx.fill();
-          ctx.strokeStyle = 'rgba(155,121,255,.96)';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 9 + strength * 1.4, 0, Math.PI * 2);
+          ctx.fillStyle = plane === 'XY' ? 'rgba(121,242,222,.32)' : 'rgba(155,121,255,.34)';
+          ctx.fill();
+          ctx.strokeStyle = plane === 'XY' ? 'rgba(121,242,222,.96)' : 'rgba(155,121,255,.96)';
           ctx.lineWidth = 2;
           ctx.stroke();
-          ctx.fillStyle = '#d9d0ff';
+          ctx.fillStyle = '#f3efff';
           ctx.font = '700 11px IBM Plex Sans KR';
-          ctx.fillText(`A${index + 1}`, p.x + 12, p.y + 4);
+          ctx.fillText(`A${index + 1} F${strength.toFixed(1)}`, p.x + 12, p.y + 4);
         });
 
         ctx.fillStyle = 'rgba(255,255,255,.70)';
@@ -635,19 +872,20 @@
         if (x < pad || x > rect.width - pad || y < pad || y > rect.height - pad) return;
         if (plane === 'XY') {
           const py = 0.42 + (1 - (y - pad) / plotH) * (1.04 - 0.42);
-          const payload = { x: px, y: py, z: 0 };
+          const payload = { x: px, y: py, z: 0, strength: 0.85 + py * 0.45 };
           xyAttractors.push(payload);
           const label = `A${xyAttractors.length}`;
           attractorLog.push({ label, plane: 'XY', ...payload });
           addAttractor('XY', payload);
         } else {
           const pz = -4.05 + (1 - (y - pad) / plotH) * (2.55 + 4.05);
-          const payload = { x: px, y: 0.62, z: pz };
+          const payload = { x: px, y: 0.62, z: pz, strength: 0.85 + Math.min(1, Math.abs(pz) / 4.05) * 0.55 };
           xzAttractors.push(payload);
           const label = `A${xzAttractors.length}`;
           attractorLog.push({ label, plane: 'XZ', ...payload });
           addAttractor('XZ', payload);
         }
+        updateAttractorFieldVisualization();
         render2D();
         renderAttractorReadout();
       }
@@ -683,6 +921,7 @@
         xzAttractors.length = 0;
         attractorLog.length = 0;
         attractorGroup.clear();
+        updateAttractorFieldVisualization();
         render2D();
         renderAttractorReadout();
       });
@@ -702,6 +941,7 @@
         if (!pointerDown) world.rotation.y += 0.0022;
         renderer.render(scene, camera);
       }
+      updateAttractorFieldVisualization();
       render2D();
       renderAttractorReadout();
       selectVerse(1);
